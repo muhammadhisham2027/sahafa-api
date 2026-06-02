@@ -27,8 +27,8 @@ export async function GET(req: Request) {
     if (names.length > 0) query = query.in("source_name", names);
   }
 
+  const now = new Date();
   if (date && date !== "all") {
-    const now = new Date();
     let cutoff: Date;
     if (date === "today") {
       cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
@@ -38,6 +38,10 @@ export async function GET(req: Request) {
       cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     }
     query = query.gte("published_at", cutoff.toISOString());
+  } else {
+    // Default: show last 7 days to keep feed fresh
+    const defaultCutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    query = query.gte("published_at", defaultCutoff.toISOString());
   }
 
   const { data, error, count } = await query;
