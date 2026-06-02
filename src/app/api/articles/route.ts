@@ -5,6 +5,8 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const region = searchParams.get("region");
   const category = searchParams.get("category");
+  const sourcesParam = searchParams.get("sources");
+  const date = searchParams.get("date"); // today | week | month | all
   const page = parseInt(searchParams.get("page") ?? "1");
   const limit = 30;
   const from = (page - 1) * limit;
@@ -17,6 +19,24 @@ export async function GET(req: Request) {
 
   if (region && region !== "All") query = query.eq("source_region", region);
   if (category && category !== "All") query = query.eq("category", category);
+
+  if (sourcesParam) {
+    const names = sourcesParam.split(",").map((s) => s.trim()).filter(Boolean);
+    if (names.length > 0) query = query.in("source_name", names);
+  }
+
+  if (date && date !== "all") {
+    const now = new Date();
+    let cutoff: Date;
+    if (date === "today") {
+      cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    } else if (date === "week") {
+      cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    } else {
+      cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    }
+    query = query.gte("published_at", cutoff.toISOString());
+  }
 
   const { data, error, count } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
