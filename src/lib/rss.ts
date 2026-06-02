@@ -1,4 +1,5 @@
 import Parser from "rss-parser";
+import Anthropic from "@anthropic-ai/sdk";
 import { supabase } from "./supabase";
 import { SOURCES, type Source } from "./sources";
 
@@ -6,6 +7,28 @@ const parser = new Parser({
   timeout: 10000,
   headers: { "User-Agent": "Mozilla/5.0 (compatible; Sahafa/1.0)" },
 });
+
+const anthropic = process.env.ANTHROPIC_API_KEY
+  ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  : null;
+
+async function generateSummary(title: string, description: string | null): Promise<string | null> {
+  if (!anthropic) return null;
+  try {
+    const msg = await anthropic.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 80,
+      messages: [{
+        role: "user",
+        content: `Summarize this tech article in one clear sentence (max 20 words). Title: "${title}". ${description ? `Description: "${description.slice(0, 300)}"` : ""}`,
+      }],
+    });
+    const text = msg.content[0].type === "text" ? msg.content[0].text.trim() : null;
+    return text;
+  } catch {
+    return null;
+  }
+}
 
 async function fetchSource(source: Source): Promise<number> {
   let feed;
@@ -20,11 +43,13 @@ async function fetchSource(source: Source): Promise<number> {
   for (const item of feed.items.slice(0, 20)) {
     if (!item.title || !item.link) continue;
 
+    const description = item.contentSnippet?.slice(0, 500) ?? item.summary?.slice(0, 500) ?? null;
+
     const { error } = await supabase.from("articles").upsert(
       {
         title: item.title.trim(),
         url: item.link,
-        description: item.contentSnippet?.slice(0, 500) ?? item.summary?.slice(0, 500) ?? null,
+        description,
         image_url: item.enclosure?.url ?? null,
         source_name: source.name,
         source_region: source.region,
@@ -40,6 +65,29 @@ async function fetchSource(source: Source): Promise<number> {
   return inserted;
 }
 
+async function backfillSummaries(): Promise<void> {
+  if (!anthropic) return;
+
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const { data } = await supabase
+    .from("articles")
+    .select("id, title, description")
+    .is("summary", null)
+    .gte("created_at", oneHourAgo)
+    .limit(30);
+
+  if (!data?.length) return;
+
+  await Promise.allSettled(
+    data.map(async (article) => {
+      const summary = await generateSummary(article.title, article.description);
+      if (summary) {
+        await supabase.from("articles").update({ summary }).eq("id", article.id);
+      }
+    })
+  );
+}
+
 export async function fetchAllSources(): Promise<{ total: number; bySource: Record<string, number> }> {
   const results = await Promise.allSettled(SOURCES.map((s) => fetchSource(s)));
   const bySource: Record<string, number> = {};
@@ -50,6 +98,9 @@ export async function fetchAllSources(): Promise<{ total: number; bySource: Reco
     bySource[SOURCES[i].name] = count;
     total += count;
   });
+
+  // After fetching, generate AI summaries for new articles
+  await backfillSummaries();
 
   return { total, bySource };
 }
