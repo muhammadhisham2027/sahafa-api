@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase";
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const region = searchParams.get("region");
+  const country = searchParams.get("country");
   const category = searchParams.get("category");
   const sourcesParam = searchParams.get("sources");
   const date = searchParams.get("date"); // today | week | month | all
@@ -18,6 +19,7 @@ export async function GET(req: Request) {
     .range(from, from + limit - 1);
 
   if (region && region !== "All") query = query.eq("source_region", region);
+  if (country && country !== "All") query = query.eq("source_country", country);
   if (category && category !== "All") query = query.eq("category", category);
 
   if (sourcesParam) {

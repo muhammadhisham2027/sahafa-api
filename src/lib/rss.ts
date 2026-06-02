@@ -53,6 +53,7 @@ async function fetchSource(source: Source): Promise<number> {
         image_url: item.enclosure?.url ?? null,
         source_name: source.name,
         source_region: source.region,
+        source_country: source.country,
         category: source.category,
         published_at: item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString(),
       },
